@@ -1,37 +1,47 @@
-# app.py
-# Exponentiële groei — interactieve webapp met animatie (Streamlit)
-# ---------------------------------------------------------------
-# Functies:
-# - Invoer met sliders/keuzes
-# - Animatie per generatie (dag)
-# - Tabel met exact/verkort/wetenschappelijke notatie
-# - Download als CSV
-# - Keuze: "alleen kinderen" (factor=k) of "ouders blijven + kinderen" (factor=k+1)
+# app.py — Tot de macht van (vrolijke, eenvoudige versie)
+# --------------------------------------------------------
+# Je voert a (basis) en b (macht) in. De app toont:
+# - a^b met duidelijke notatie
+# - per generatie (1..b) een tegel-visualisatie waarin zichtbaar is dat
+#   elke "ouder" precies a "kinderen" krijgt (groeifactor = a).
+# - Voor hele grote aantallen schaalt de visual automatisch.
 #
-# Benodigd: streamlit, matplotlib, pandas
+# Benodigd: streamlit, matplotlib, pandas (pandas alleen voor nette weergave)
 
 from __future__ import annotations
 import math
-import time
-from typing import List
+from typing import List, Tuple
 
 import streamlit as st
-import pandas as pd
 import matplotlib.pyplot as plt
+import pandas as pd
 
-# ==========================
-# Hulpfuncties
-# ==========================
+# ---------- Basisinstellingen & vrolijke styling ----------
+st.set_page_config(page_title="Tot de macht van", page_icon="🧮", layout="centered")
 
+# Zachte, vrolijke CSS
+st.markdown(
+    """
+    <style>
+    .main { background: linear-gradient(180deg,#fffaf2 0%, #fff 80%); }
+    .stApp { font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    .big-number { font-size: 1.6rem; font-weight: 700; }
+    .muted { color: #555; }
+    .note { background: #fff4c2; padding: .6rem .8rem; border-radius: .6rem; }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# ---------- Helpers ----------
 SI_NAMEN = [
-    (10**12, "biljoen"),  # Lange schaal NL: 10^12
+    (10**12, "biljoen"),
     (10**9,  "miljard"),
     (10**6,  "miljoen"),
     (10**3,  "duizend"),
 ]
 
 def verkort_getal(n: int) -> str:
-    """Grote aantallen leesbaar maken (duizend/miljoen/miljard/biljoen) met fallback."""
     if n < 0:
         return "-" + verkort_getal(-n)
     if n < 1_000:
@@ -50,140 +60,150 @@ def verkort_getal(n: int) -> str:
     mant = n / (10**exp)
     return f"{mant:.2f}e{exp}"
 
-def simuleer(start: int, k: int, generaties: int, inclusief_ouders: bool) -> List[int]:
-    """Populatie per generatie, incl. generatie 0."""
-    factor = (1 + k) if inclusief_ouders else k
-    data = [start]
-    for _ in range(generaties):
-        data.append(data[-1] * factor)
-    return data
+def generaties_counts(a: int, b: int) -> List[int]:
+    # Gen 1 = a, Gen 2 = a^2, ... Gen b = a^b
+    return [a**g for g in range(1, b+1)]
 
 def generatie_label(i: int) -> str:
+    # i = 1..b
     return f"{i}e generatie"
 
-def maak_dataframe(pop: List[int]) -> pd.DataFrame:
-    df = pd.DataFrame({
-        "Generatie": list(range(len(pop))),
-        "Aantal (exact)": [f"{v:,}".replace(",", ".") for v in pop],
-        "Verkort": [verkort_getal(v) for v in pop],
-        "Wetenschappelijk": [f"{v:.2e}" for v in pop],
-        "Ruw": pop,  # handig voor sorteren/plots (onzichtbaar te maken)
-    })
-    return df
+# ---------- Hoofdkop ----------
+st.title("🧮 Tot de macht van")
+st.caption("Speelse kennismaking met machten — “elke tegel krijgt er a nieuwe bij”")
 
-# ==========================
-# UI
-# ==========================
-
-st.set_page_config(page_title="Exponentiële groei — Animatie", page_icon="📈", layout="centered")
-st.title("📈 Exponentiële groei — animatie en generaties")
-st.caption("Interactieve simulatie voor begrip van exponentiële groei (bacteriën).")
-
-with st.expander("Didactische uitleg", expanded=False):
-    st.markdown(
-        """
-- **Alleen kinderen tellen (factor = k)**: sluit aan bij het voorbeeld *3 → 9 → 27*.
-- **Ouders blijven + kinderen (factor = k+1)**: veelgebruikte populatiemodellen waarin ouders niet verdwijnen.
-- **Lineair vs. logaritmisch**: lineair laat zien hoe de grafiek ‘uit beeld schiet’; log maakt het patroon zichtbaar.
-        """
-    )
-
+# ---------- Invoer ----------
 col1, col2 = st.columns(2)
 with col1:
-    start = st.number_input("Startaantal (dag 0)", min_value=1, max_value=10**12, value=3, step=1)
-    k = st.number_input("Kinderen per bacterie per dag (k)", min_value=1, max_value=10**6, value=3, step=1)
-    generaties = st.slider("Aantal generaties (dagen)", min_value=1, max_value=120, value=20)
+    a = st.number_input("Basis a", min_value=2, max_value=12, value=3, step=1, help="Bijv. 3")
 with col2:
-    inclusief_ouders = st.radio(
-        "Tel je de ouders mee?",
-        options=["Nee, alleen kinderen (factor = k)", "Ja, ouders blijven + kinderen (factor = k+1)"],
-        index=0,
-    ).startswith("Ja")
-    schaal = st.radio("Schaal y-as", options=["Logaritmisch", "Lineair"], index=0)
-    ms_per_frame = st.slider("Snelheid animatie (ms/frame)", min_value=50, max_value=2000, value=500, step=50)
+    b = st.number_input("Macht b", min_value=1, max_value=10, value=3, step=1, help="Bijv. 3 → 3^3")
 
-toon_tabel = st.checkbox("Toon tabel met generaties en aantallen", value=True)
+st.markdown(
+    f"**Opdracht:** bereken **{a}<sup>{b}</sup>** (lees: {a} tot de macht {b}).",
+    unsafe_allow_html=True
+)
 
-# ==========================
-# Simulatie & tabellen
-# ==========================
+waarde = a**b
+st.markdown(
+    f"<div class='big-number'>Antwoord: {a}<sup>{b}</sup> = {waarde:,} "
+    f"(<span class='muted'>{verkort_getal(waarde)}</span>)</div>",
+    unsafe_allow_html=True
+)
 
-pop = simuleer(int(start), int(k), int(generaties), inclusief_ouders)
-factor = (1 + int(k)) if inclusief_ouders else int(k)
-titel = f"Exponentiële groei (start={start}, k={k}, factor=×{factor}, generaties={generaties})"
-
-df = maak_dataframe(pop)
-
-# Downloadknop voor CSV
-csv = df.drop(columns=["Ruw"]).to_csv(index=False).encode("utf-8")
-st.download_button("⬇️ Download tabel als CSV", data=csv, file_name="exponentiele_groei.csv", mime="text/csv")
-
-if toon_tabel:
-    st.dataframe(df.drop(columns=["Ruw"]), use_container_width=True, hide_index=True)
+# Klein tabelletje voor overzicht
+df = pd.DataFrame({
+    "Generatie": [generatie_label(i) for i in range(1, b+1)],
+    "Aantal": [f"{v:,}".replace(",", ".") for v in generaties_counts(a, b)],
+    "Verkort": [verkort_getal(v) for v in generaties_counts(a, b)],
+})
+st.dataframe(df, hide_index=True, use_container_width=True)
 
 st.markdown("---")
-st.subheader("Animatie")
+st.subheader("👀 Zo groeit het: elke ouder krijgt kinderen")
 
-left, right = st.columns([1,1])
-with left:
-    start_btn = st.button("▶️ Start animatie", type="primary")
-with right:
-    reset_btn = st.button("⏹️ Reset")
+st.markdown(
+    """
+    <div class='note'>
+    Bij elke stap zie je links → rechts hoe <b>iedere</b> tegel <i>precies</i> a nieuwe tegels krijgt.
+    Voor grote aantallen schaalt de tekening automatisch, zodat het patroon zichtbaar blijft.
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
-# Placeholder voor grafiek en overlay
-plot_placeholder = st.empty()
-info_placeholder = st.empty()
+# ---------- Visualisatie ----------
+def draw_generations(a: int, b: int, max_per_col: int = 600) -> None:
+    """
+    Teken kolommen per generatie. Binnen een kolom groeperen we per 'ouder':
+    - Gen 1: a tegels (1 groep van a)
+    - Gen 2: a^2 tegels (a groepen van a)
+    - Gen 3: a^3 tegels (a^2 groepen van a)
+    enz.
+    Om performance te bewaren tekenen we max_per_col tegels per kolom, met schaalfactor.
+    """
+    counts = generaties_counts(a, b)
+    # Figuurbreedte schaalt mee met het aantal generaties
+    fig_w = 2.1 * b
+    fig, ax = plt.subplots(figsize=(fig_w, 5))
 
-def plot_tot_frame(frame: int):
-    """Teken lijn t/m frame (inclusief dag 0)."""
-    fig, ax = plt.subplots(figsize=(9, 5))
-    x = list(range(frame + 1))
-    y = pop[: frame + 1]
-    ax.plot(x, y, marker="o")
-    ax.set_title(titel)
-    ax.set_xlabel("Generatie (dag)")
-    ax.set_ylabel("Aantal bacteriën")
+    # Tekelgrootte en marges
+    x_gap = 0.9          # afstand tussen kolommen
+    group_gap = 0.12     # extra ruimte tussen groepen binnen kolom
+    tile_size = 0.18     # basismaat (wordt geschaald bij overschot)
+    palette = ["#FFD166", "#06D6A0", "#EF476F", "#118AB2", "#9C6ADE", "#FF9F1C"]
 
-    if schaal == "Logaritmisch":
-        ax.set_yscale("log")
-        ax.grid(True, which="both", linestyle="--", linewidth=0.5)
-        ymin = max(1, min(y))
-        ymax = max(y)
-        ax.set_ylim(ymin, max(ymax, 10))
-    else:
-        ax.grid(True, linestyle="--", linewidth=0.5)
-        ymax = max(y)
-        ax.set_ylim(0, ymax * 1.1)
+    x = 0
+    for gen_index, total in enumerate(counts, start=1):
+        # Bepaal groepen in deze kolom: aantal ouders = a^(gen-1)
+        parents = a**(gen_index - 1)
+        children_per_parent = a
 
-    plot_placeholder.pyplot(fig)
+        # Schaal als er te veel tegels zijn
+        scale = 1.0
+        visible = total
+        if total > max_per_col:
+            scale = (max_per_col / total) ** 0.5  # area-schaal
+            visible = max_per_col
+
+        # Hoeveel tegels per groep (altijd = a, maar kan visueel afgeschaald worden)
+        eff_tile = tile_size * scale
+
+        # We tekenen per parent een verticaal stapeltje van 'a' tegels, met kleine gap ertussen.
+        # Zet groepen in rijen/kolommen (grid) om brede kolommen te voorkomen.
+        groups_per_row = max(1, int((visible / children_per_parent) ** 0.5))
+        # Aantal zichtbare groepen (afgeschaald)
+        vis_groups = max(1, visible // children_per_parent)
+
+        # Bereken rijen/kolommen van groepen
+        rows = math.ceil(vis_groups / groups_per_row)
+
+        # Linksboven coördinaat van deze kolom
+        col_x0 = x
+        col_y0 = 0
+
+        g_drawn = 0
+        for r in range(rows):
+            for c in range(groups_per_row):
+                if g_drawn >= vis_groups:
+                    break
+                gx = col_x0 + c * (children_per_parent * eff_tile + group_gap)
+                gy = col_y0 + r * (children_per_parent * eff_tile + group_gap)
+
+                color = palette[(r * groups_per_row + c) % len(palette)]
+
+                # Teken de 'a' kinderen als een verticaal stapeltje
+                for k in range(children_per_parent):
+                    # binnen 1 groep wat tussenruimte
+                    tx = gx
+                    ty = gy + k * (eff_tile * 1.1)
+                    rect = plt.Rectangle((tx, ty), eff_tile, eff_tile, color=color, alpha=0.9)
+                    ax.add_patch(rect)
+                g_drawn += 1
+
+        # Label onderaan
+        ax.text(col_x0, -0.25, generatie_label(gen_index), rotation=0, va="top", ha="left", fontsize=10)
+
+        # Volgende kolom X
+        # kolombreedte = groups_per_row * (a*eff_tile + group_gap)
+        col_width = max(1.2, groups_per_row * (children_per_parent * eff_tile + group_gap))
+        x += col_width + x_gap
+
+        # Bovenaan tekst “a^gen = total”
+        ax.text(col_x0, gy + children_per_parent * eff_tile + 0.25,
+                f"{a}^{gen_index} = {total:,}".replace(",", "."),
+                fontsize=9, ha="left", va="bottom")
+
+    # As-instellingen: we verbergen de assen voor een cleane look
+    ax.set_xlim(-0.2, x)
+    ax.set_ylim(-0.6, None)
+    ax.axis("off")
+    ax.set_title("Elke tegel krijgt er a nieuwe bij (links → rechts)", pad=12)
+    st.pyplot(fig)
     plt.close(fig)
 
-def update_overlay(frame: int):
-    huidige = pop[frame]
-    exact = f"{huidige:,}".replace(",", ".")
-    verkort = verkort_getal(huidige)
-    exp = f"{huidige:.2e}"
-    info_placeholder.info(
-        f"**{generatie_label(frame)}** — Aantal: **{exact}**  \n"
-        f"Verkort: *{verkort}* &nbsp;&nbsp;|&nbsp;&nbsp; Wetenschappelijk: *{exp}*"
-    )
+draw_generations(a, b, max_per_col=600)
 
-if reset_btn:
-    # Wis weergave
-    plot_tot_frame(0)
-    update_overlay(0)
-
-# Toon eerste frame standaard
-if not start_btn and not reset_btn and "init_once" not in st.session_state:
-    plot_tot_frame(0)
-    update_overlay(0)
-    st.session_state["init_once"] = True
-
-# Animatie
-if start_btn:
-    # Veiligheidsrem bij extreem lange animaties
-    max_frames = len(pop)
-    for frame in range(max_frames):
-        plot_tot_frame(frame)
-        update_overlay(frame)
-        time.sleep(ms_per_frame / 1000.0)
+# Kleine knaller voor motivatie bij “mooie” getallen
+if a**b <= 1_000_000:
+    st.balloons()
