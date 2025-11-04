@@ -1,5 +1,5 @@
-# app.py — “A la potencia de…” (modo aula, pantalla ancha, paso a paso)
-# --------------------------------------------------------------------
+# app.py — “A la potencia de…” (pantalla ancha, paso a paso, usando el ancho)
+# ----------------------------------------------------------------------------
 # Requisitos: streamlit, matplotlib
 
 from __future__ import annotations
@@ -9,21 +9,17 @@ from typing import List, Tuple
 import streamlit as st
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, Rectangle
+from matplotlib.patches import Circle
 
 # ---------------- Configuración de página y estilo (pantalla completa) ----------------
 st.set_page_config(page_title="A la potencia de…", page_icon="🧮", layout="wide")
 st.markdown(
     """
     <style>
-      /* Más espacio para el lienzo */
-      .block-container {padding-top: 0.6rem; padding-bottom: 0.6rem; max-width: 2000px;}
-      /* Fondo suave y tipografía amigable */
+      .block-container {padding-top: 0.5rem; padding-bottom: 0.5rem; max-width: 2200px;}
       .stApp { background: linear-gradient(180deg,#fffaf2 0%, #ffffff 70%);
                font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
-      /* Ocultar menú/nota pie para clase */
-      #MainMenu {visibility: hidden;}
-      footer {visibility: hidden;}
-      header {visibility: hidden;}
+      #MainMenu, header, footer {visibility: hidden;}
       .titulo {font-size: 1.6rem; font-weight: 700; margin-bottom: .2rem;}
       .sub {color:#444; margin-bottom: .6rem;}
       .barra {background:#fff4c2; padding:.6rem .8rem; border-radius:.6rem;}
@@ -35,10 +31,10 @@ st.markdown(
 )
 
 # ---------------- Utilidades ----------------
-def formatea_grande(n: int) -> str:
+def format_grande(n: int) -> str:
     """Notación corta en español: mil, millón, mil millones, billón (10^12)."""
     if n < 0:
-        return "-" + formatea_grande(-n)
+        return "-" + format_grande(-n)
     if n < 1_000:
         return f"{n}"
     for d, nombre in [(10**12,"billón"), (10**9,"mil millones"), (10**6,"millón"), (10**3,"mil")]:
@@ -51,188 +47,221 @@ def formatea_grande(n: int) -> str:
     exp = int(math.log10(n))
     return f"{n/10**exp:.2f}e{exp}"
 
-def subdivide_segmentos(prev_segmentos: List[Tuple[float,float]], a: int):
+def layout_columna_horizontal(
+    a: int,
+    g: int,
+    target_filas: int = 6,
+    gap_item: float = 0.012,
+    gap_grupo_x: float = 0.05,
+    gap_grupo_y: float = 0.06,
+):
     """
-    Divide cada segmento vertical [y0,y1] en 'a' partes iguales y
-    devuelve (nuevos segmentos, centros verticales de cada subsegmento).
-    Mantiene agrupados a los hijos bajo su padre.
+    Calcula la distribución de a^g 'hijos' en la columna g de forma HORIZONTAL:
+      - Cada 'padre' genera un grupo de 'a' hijos colocados en una FILA (uno al lado del otro).
+      - Los grupos de padres se distribuyen en 'target_filas' filas para usar la anchura.
+    Devuelve:
+      - child_centers_by_parent: lista de listas [(x,y) de cada hijo] para cada padre (long a).
+      - item_centers: lista plana de todos los hijos (a^g).
+      - medidas (tile_w, tile_h, ancho_total, alto_total, filas, grupos_por_fila).
     """
-    nuevos = []
-    ys_centros = []
-    for (y0, y1) in prev_segmentos:
-        h = (y1 - y0) / a
-        for j in range(a):
-            c0 = y0 + j*h
-            c1 = c0 + h
-            nuevos.append((c0, c1))
-            ys_centros.append((c0 + c1) / 2.0)
-    return nuevos, ys_centros
+    total = a**g
+    padres = a**(g-1)  # nº de grupos (uno por padre)
+    grupos_por_fila = max(1, math.ceil(padres / target_filas))
+    filas = math.ceil(padres / grupos_por_fila)
 
-def posiciones_generacion(a: int, g: int):
-    """
-    Calcula segmentos y centros para la generación g usando subdivisiones recursivas desde [0,1].
-    """
-    segmentos = [(0.0, 1.0)]
-    for _ in range(g):
-        segmentos, _centros = subdivide_segmentos(segmentos, a)
-    # Centros de la última división
-    _, centros = subdivide_segmentos([(0.0, 1.0)], 1)  # dummy para tipado
-    # Recalcula centros reales para g:
-    seg_tmp = [(0.0, 1.0)]
-    for _ in range(g):
-        seg_tmp, centros = subdivide_segmentos(seg_tmp, a)
-    return seg_tmp, centros
+    # Altura disponible ~1.0; definimos alto por fila y tamaño del "tile" en función de filas
+    alto_por_fila = (1.0 - (filas - 1) * gap_grupo_y) / max(1, filas)
+    tile_h = max(0.012, alto_por_fila * 0.55)  # algo de margen superior/inferior
+    tile_w = tile_h  # cuadrados por defecto
+
+    # Ancho de un grupo (a hijos en fila)
+    ancho_grupo = a * tile_w + (a - 1) * gap_item
+    ancho_total = grupos_por_fila * ancho_grupo + (grupos_por_fila - 1) * gap_grupo_x
+    alto_total = filas * tile_h + (filas - 1) * gap_grupo_y
+
+    child_centers_by_parent = []
+    item_centers = []
+
+    for idx_padre in range(padres):
+        fila = idx_padre // grupos_por_fila
+        col  = idx_padre % grupos_por_fila
+
+        gx0 = col * (ancho_grupo + gap_grupo_x)            # x de inicio del grupo
+        gy0 = fila * (tile_h + gap_grupo_y)                # y de la fila
+
+        centros_hijos = []
+        for k in range(a):
+            cx = gx0 + k * (tile_w + gap_item) + tile_w / 2
+            cy = gy0 + tile_h / 2
+            centros_hijos.append((cx, cy))
+            item_centers.append((cx, cy))
+
+        child_centers_by_parent.append(centros_hijos)
+
+    return child_centers_by_parent, item_centers, (tile_w, tile_h, ancho_total, alto_total, filas, grupos_por_fila)
 
 # ---------------- Estado ----------------
 if "current_gen" not in st.session_state:
-    st.session_state.current_gen = 1  # comenzamos en a^1
+    st.session_state.current_gen = 1  # empezamos en a^1
 
 # ---------------- Cabecera ----------------
 st.markdown("<div class='titulo'>🧮 A la potencia de… — modo aula</div>", unsafe_allow_html=True)
-st.markdown("<div class='sub'>Empieza en a¹. Cada paso: <b>cada punto</b> genera <b>a</b> hijos a la derecha.</div>",
+st.markdown("<div class='sub'>Empieza en a¹. En cada paso, <b>cada punto</b> genera <b>a</b> hijos a la derecha.</div>",
             unsafe_allow_html=True)
 
-# ---------------- Controles (solo navegación) ----------------
-c1, c2, c3, c4, c5 = st.columns([1.2, 1.2, 1, 3, 8])
+# ---------------- Controles (en un mismo panel con el lienzo) ----------------
+c1, c2, c3, c4, c5 = st.columns([1.3, 1.3, 1.6, 1, 6])
 with c1:
-    a = st.number_input("Base (a)", min_value=2, max_value=8, value=3, step=1, help="Ej.: 3")
+    a = st.number_input("Base (a)", min_value=2, max_value=10, value=3, step=1, help="Ej.: 3")
 with c2:
     b = st.number_input("Exponente (b)", min_value=1, max_value=12, value=7, step=1, help="Ej.: 7 → 3^7")
 with c3:
-    # Mostrar estado actual (solo texto)
-    st.write(f"Gen: {st.session_state.current_gen}/{int(b)}")
-
+    estilo = st.radio("Estilo", ["Bloques", "Bolitas"], horizontal=True, index=0)
 with c4:
+    st.write(f"Gen: {st.session_state.current_gen}/{int(b)}")
+with c5:
     st.markdown("<div class='barra'>Pulsa <b>Siguiente</b> para avanzar. "
-                "Verás solo la(s) generación(es) más reciente(s): primero 1; "
-                "luego 2; después (2 y 3), (3 y 4), etc.</div>", unsafe_allow_html=True)
+                "Se muestran solo las últimas generaciones: primero 1; luego 2; después (2 y 3), (3 y 4), etc.</div>",
+                unsafe_allow_html=True)
 
-# Botones grandes centrados
 bc1, bc2, bc3 = st.columns([1, 1, 1])
 with bc1:
-    anterior = st.container()
-    with anterior:
-        st.markdown("<div class='boton-grande'>", unsafe_allow_html=True)
-        btn_prev = st.button("⬅️ Anterior", use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("<div class='boton-grande'>", unsafe_allow_html=True)
+    btn_prev = st.button("⬅️ Anterior", use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 with bc2:
-    # Espacio
     st.write("")
 with bc3:
-    siguiente = st.container()
-    with siguiente:
-        st.markdown("<div class='boton-grande'>", unsafe_allow_html=True)
-        btn_next = st.button("➡️ Siguiente", use_container_width=True, type="primary")
-        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("<div class='boton-grande'>", unsafe_allow_html=True)
+    btn_next = st.button("➡️ Siguiente", use_container_width=True, type="primary")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-# Lógica de navegación
-if btn_prev:
-    if st.session_state.current_gen > 1:
-        st.session_state.current_gen -= 1
-
-if btn_next:
-    if st.session_state.current_gen < int(b):
-        st.session_state.current_gen += 1
+# Navegación
+if btn_prev and st.session_state.current_gen > 1:
+    st.session_state.current_gen -= 1
+if btn_next and st.session_state.current_gen < int(b):
+    st.session_state.current_gen += 1
 
 current = st.session_state.current_gen
 objetivo = int(b)
 
-# ---------------- Dibujo (solo 1 o 2 columnas visibles) ----------------
+# ---------------- Parámetros de dibujo ----------------
 # Límites para mantener fluidez
-LIM_FLECHAS = 320            # máximo de flechas en el paso (entre prev y actual)
-LIM_PUNTOS_COL = 2500        # máximo de puntos dibujados por columna
+ARROW_LIMIT = 350          # máximo de flechas entre 2 columnas
+ITEM_LIMIT  = 6000         # máximo de elementos dibujados por columna antes de aplicar muestreo
+ROWS_TARGET = 6            # cuántas filas de grupos intentamos usar (aprovecha el ancho)
 
-# Preparar qué columnas mostrar:
-# - Si current == 1 -> solo 1
-# - Si current >= 2 -> mostrar (current-1, current)
-gens_a_mostrar = [current] if current == 1 else [current - 1, current]
-
-# Parámetros de dibujo
-x_gap = 2.8                 # separación amplia para modo aula
-ancho = 0.11                # ancho de bloque (rectángulo)
+x_gap_cols = 1.2           # separación entre columna anterior y actual
 paleta = ["#FFD166","#06D6A0","#EF476F","#118AB2","#9C6ADE","#FF9F1C","#2BB3FF","#FF6F91"]
 
-# Fig grande en modo ancho
-fig_w = 9 if len(gens_a_mostrar) == 1 else 16
-fig, ax = plt.subplots(figsize=(fig_w, 9))
+# ---------------- Determinar qué columnas mostrar ----------------
+gens_visibles = [current] if current == 1 else [current - 1, current]
+
+# Precalcular layouts
+layouts = {}
+total_width_units = 0.0
+for i, g in enumerate(gens_visibles):
+    child_by_parent, items, (tile_w, tile_h, ancho_total, alto_total, filas, gpf) = layout_columna_horizontal(
+        a=a, g=g, target_filas=ROWS_TARGET
+    )
+    layouts[g] = {
+        "child_by_parent": child_by_parent,
+        "items": items,
+        "tile_w": tile_w,
+        "tile_h": tile_h,
+        "ancho_total": ancho_total,
+        "alto_total": alto_total,
+    }
+    total_width_units += ancho_total
+total_width_units += x_gap_cols * (len(gens_visibles) - 1)
+
+# ---------------- Lienzo grande ----------------
+fig_w = 18 if len(gens_visibles) == 2 else 12  # bastante ancho
+fig_h = 9
+fig, ax = plt.subplots(figsize=(fig_w, fig_h))
 ax.axis("off")
-ax.set_title("Izquierda → derecha: cada punto genera a hijos", pad=10, fontsize=16)
+ax.set_title("De izquierda a derecha: cada punto genera a hijos", pad=14, fontsize=16)
 
-# Para flechas, necesitamos datos de la generación anterior
-segmentos_prev, ys_prev_centros = None, None
+# Dibujo de columnas
+x_offset = 0.0
+prev_g = None
+for idx, g in enumerate(gens_visibles):
+    L = layouts[g]
+    tile_w = L["tile_w"]
+    tile_h = L["tile_h"]
+    ancho_total = L["ancho_total"]
+    alto_total = L["alto_total"]
+    child_by_parent = L["child_by_parent"]
 
-# Si mostramos dos columnas y la primera no es 1, cargamos prev explícitamente
-if len(gens_a_mostrar) == 2:
-    g_prev = gens_a_mostrar[0]
-    seg_prev, ys_prev = posiciones_generacion(a, g_prev)
-    segmentos_prev, ys_prev_centros = seg_prev, ys_prev
-
-# Dibujo de columnas visibles
-for idx, g in enumerate(gens_a_mostrar):
-    x = idx * x_gap  # 0 para la primera, x_gap para la segunda
-    # calcular segmentos/centros de esta generación
-    seg_act, ys_centros = posiciones_generacion(a, g)
-    total_puntos = a**g
-
-    # Tamaño vertical de un subsegmento para escalar el bloque
-    alto_subseg = (seg_act[0][1] - seg_act[0][0]) if seg_act else 0.05
-    alto = max(0.012, alto_subseg * 0.6)
-
-    # Muestreo si son demasiados
-    muestreo = 1
-    if total_puntos > LIM_PUNTOS_COL:
-        muestreo = math.ceil(total_puntos / LIM_PUNTOS_COL)
-
-    # Dibujar puntos
+    # Dibuja elementos de la columna g
     color = paleta[(g-1) % len(paleta)]
+    total_items = a**g
+    muestreo = 1
+    if total_items > ITEM_LIMIT:
+        muestreo = math.ceil(total_items / ITEM_LIMIT)
+
+    # Dibujar puntos (bloques o bolitas)
     dibujados = 0
-    for i, ycent in enumerate(ys_centros):
-        if i % muestreo != 0:
-            continue
-        y0 = ycent - alto/2
-        rect = Rectangle((x, y0), ancho, alto, facecolor=color, edgecolor="white", linewidth=0.6)
-        ax.add_patch(rect)
-        dibujados += 1
+    for p_idx, hijos in enumerate(child_by_parent):
+        for k, (cx, cy) in enumerate(hijos):
+            # muestreo global por índice absoluto
+            abs_index = p_idx * a + k
+            if abs_index % muestreo != 0:
+                continue
+            if estilo == "Bloques":
+                rect = Rectangle((x_offset + cx - tile_w/2, cy - tile_h/2),
+                                 tile_w, tile_h, facecolor=color, edgecolor="white", linewidth=0.6)
+                ax.add_patch(rect)
+            else:  # Bolitas
+                circ = Circle((x_offset + cx, cy), radius=min(tile_w, tile_h)/2,
+                              facecolor=color, edgecolor="white", linewidth=0.6)
+                ax.add_patch(circ)
+            dibujados += 1
 
-    # Etiquetas
-    ax.text(x, 1.045, f"{a}^{g} = {a**g:,}".replace(",", "."),
+    # Etiquetas superior e inferior
+    ax.text(x_offset, 1.05, f"{a}^{g} = {a**g:,}".replace(",", "."),
             fontsize=13, ha="left", va="bottom")
-    ax.text(x, -0.06, f"{g}ª generación", fontsize=12, ha="left", va="top")
+    ax.text(x_offset, -0.08, f"{g}ª generación",
+            fontsize=12, ha="left", va="top")
 
-    # Flechas solo si hay dos columnas y es la segunda (actual), y el volumen lo permite
-    if len(gens_a_mostrar) == 2 and g == gens_a_mostrar[-1] and segmentos_prev is not None:
-        posibles_flechas = a**(g-1) * a
-        if posibles_flechas <= LIM_FLECHAS and muestreo == 1:
-            for i_padre, ypad in enumerate(ys_prev_centros):
-                start = i_padre * a
-                for k in range(a):
-                    yhijo = ys_centros[start + k]
-                    arr = FancyArrowPatch((x - x_gap + ancho, ypad),
-                                          (x, yhijo),
-                                          arrowstyle="-|>", mutation_scale=11,
-                                          color="gray", alpha=0.45, linewidth=0.9)
+    # Flechas desde la columna anterior hacia ésta (solo si hay 2 columnas)
+    if prev_g is not None:
+        # posibles flechas = a^(g-1) * a ; si es razonable y sin muestreo, dibujamos
+        posibles = a**(g-1) * a
+        if posibles <= ARROW_LIMIT and muestreo == 1:
+            prev_items = layouts[prev_g]["items"]  # centros de los padres (todos los puntos de la gen anterior)
+            for i_padre, padre_center in enumerate(prev_items):
+                px, py = padre_center
+                for (cx, cy) in child_by_parent[i_padre]:
+                    arr = FancyArrowPatch((x_offset - x_gap_cols + px + tile_w/2, py),
+                                          (x_offset + cx - tile_w/2, cy),
+                                          arrowstyle="-|>", mutation_scale=12,
+                                          color="gray", alpha=0.45, linewidth=1.0)
                     ax.add_patch(arr)
         else:
-            # Nota informativa si ocultamos flechas o hay muestreo
             msg = []
             if muestreo > 1:
-                msg.append("⚠️ Muestreo activo (1 de cada n).")
-            if posibles_flechas > LIM_FLECHAS:
+                msg.append("⚠️ Muestreo activo (se muestra 1 de cada n).")
+            if posibles > ARROW_LIMIT:
                 msg.append("ℹ️ Flechas ocultas por cantidad.")
             if msg:
-                ax.text(0, -0.12, "  ".join(msg), fontsize=11, ha="left", va="top", color="#555")
+                ax.text(x_offset - 0.2, -0.12, "  ".join(msg), fontsize=11, ha="left", va="top", color="#555")
 
-# Límites del lienzo
-span = len(gens_a_mostrar) - 1
-ax.set_xlim(-0.2, span * x_gap + 2.2)
+    # Avanza offset horizontal para la próxima columna visible
+    x_offset += ancho_total + x_gap_cols
+    prev_g = g
+
+# Límites y renderizado
+span = len(gens_visibles)
+ax.set_xlim(-0.2, total_width_units + 0.2)
 ax.set_ylim(-0.12, 1.10)
 
-st.pyplot(fig)
+st.pyplot(fig, use_container_width=True)
 plt.close(fig)
 
-# Pie con valor actual
+# Pie con valor actual (visible y grande)
 st.markdown(
     f"<div class='sub'>Ahora: <b>{a}<sup>{current}</sup></b> = "
-    f"<b>{(a**current):,}</b> <span class='soft'>({formatea_grande(a**current)})</span></div>",
+    f"<b>{(a**current):,}</b> <span class='soft'>({format_grande(a**current)})</span></div>",
     unsafe_allow_html=True
 )
