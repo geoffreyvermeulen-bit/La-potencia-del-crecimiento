@@ -2,7 +2,7 @@
 # ------------------------------------------------------------------------
 # Qué hace:
 # - Introduce base (a) y exponente (b).
-# - Muestra a^1, a^2, … con una animación Play/Pausa/Reset.
+# - Muestra a^1, a^2, … con animación Play/Pausa/Reset y “Avanzar 1”.
 # - Cada punto (padre) genera a hijos en la siguiente columna.
 # - Con pocos puntos: flechas padre→hijos. Con muchos: muestreo y aviso.
 # - Todo en español. Números grandes en formato legible.
@@ -46,19 +46,14 @@ def formatea_grande(n: int) -> str:
             if v < 10:   s = f"{v:.2f}"
             elif v < 100: s = f"{v:.1f}"
             else:         s = f"{int(round(v))}"
-            # singular/plural sencillo
-            suf = nombre if s == "1" else nombre
-            return f"{s} {suf}"
+            return f"{s} {nombre}"
     exp = int(math.log10(n))
     return f"{n/10**exp:.2f}e{exp}"
 
 def subdivide_segmentos(prev_segmentos: List[Tuple[float,float]], a: int):
     """
-    Recibe una lista de segmentos verticales [y0,y1].
-    Devuelve:
-      - nuevos segmentos (cada uno subdividido en 'a' partes),
-      - y posiciones y-centro (una por hijo).
-    Así los hijos quedan agrupados bajo su padre.
+    Recibe segmentos verticales [y0,y1] y los divide en 'a' partes.
+    Devuelve nuevos segmentos y los centros verticales, para colocar hijos agrupados.
     """
     nuevos = []
     ys_centros = []
@@ -83,22 +78,22 @@ with c2:
 with c3:
     speed_ms = st.slider("Velocidad (ms por paso)", 100, 1500, 500, 50)
 
-# Estado seguro (claves separadas para evitar el error con widgets)
+# --------- Estado seguro (claves separadas) ---------
 if "anim_frame" not in st.session_state:
-    st.session_state.anim_frame = 1
+    st.session_state.anim_frame = 1      # fotograma de animación
 if "slider_frame" not in st.session_state:
-    st.session_state.slider_frame = 1
+    st.session_state.slider_frame = 1    # valor del slider controlado por el usuario
 if "playing" not in st.session_state:
     st.session_state.playing = False
 
 objetivo = int(b)
 
 def sync_desde_slider():
-    # Cuando el usuario mueve el slider, sincronizamos el fotograma de animación
+    """Callback: cuando el usuario mueve el slider, sincronizamos anim_frame."""
     st.session_state.anim_frame = st.session_state.slider_frame
 
-# Controles
-controles = st.columns([0.9,0.9,0.9,2])
+# --------- Controles ---------
+controles = st.columns([0.9,0.9,0.9,1.2,2])
 with controles[0]:
     if st.button("▶️ Reproducir"):
         st.session_state.playing = True
@@ -111,6 +106,12 @@ with controles[2]:
         st.session_state.anim_frame = 1
         st.session_state.slider_frame = 1
 with controles[3]:
+    if st.button("➡️ Avanzar 1"):
+        st.session_state.playing = False
+        if st.session_state.anim_frame < objetivo:
+            st.session_state.anim_frame += 1
+            st.session_state.slider_frame = st.session_state.anim_frame
+with controles[4]:
     st.slider("Paso (columna)", 1, objetivo, key="slider_frame", on_change=sync_desde_slider)
 
 # Encabezado de estado actual
@@ -131,18 +132,14 @@ placeholder = st.empty()
 def dibuja_hasta(frame: int):
     """
     Dibuja columnas desde a^1 hasta a^frame.
-    Para cada columna g:
-      - coloco a^g puntos (hijos) dentro de subsegmentos del intervalo [0,1].
-      - si el total es pequeño, dibujo flechas desde cada padre (columna g-1) a sus 'a' hijos.
+    Colocamos puntos agrupados bajo sus padres con subdivisiones de [0,1].
+    Con pocos puntos: flechas padre→hijos. Con muchos: muestreo y aviso.
     """
-    # Límites para mantener fluidez
-    LIM_FLECHAS = 280               # máximo de flechas en un paso
-    LIM_PUNTOS_COL = 2500           # máximo de puntos dibujados en una columna
-    usar_flechas = True
+    LIM_FLECHAS = 280               # máximo de flechas por paso
+    LIM_PUNTOS_COL = 2500           # máximo de puntos por columna
 
-    # Geometría
     x_gap = 1.6                      # separación horizontal entre columnas
-    ancho = 0.075                    # ancho de cada punto (rectángulo)
+    ancho = 0.075                    # ancho del punto (rectángulo)
     paleta = ["#FFD166","#06D6A0","#EF476F","#118AB2","#9C6ADE","#FF9F1C","#2BB3FF","#FF6F91"]
 
     fig_w = 2 + frame * 1.9
@@ -150,49 +147,44 @@ def dibuja_hasta(frame: int):
     ax.axis("off")
     ax.set_title("Izquierda → derecha: cada punto genera a hijos", pad=10)
 
-    # Segmentos del paso anterior (inicialmente un segmento total)
     segmentos_prev = [(0.0, 1.0)]
-    ys_prev_centros = [0.5]  # centro del segmento inicial (conceptual)
+    ys_prev_centros = [0.5]
+
+    hubo_muestreo = False
+    flechas_ocultas = False
 
     for g in range(1, frame + 1):
         x = (g-1) * x_gap
-
-        # Subdividir cada segmento del paso anterior en 'a' segmentos nuevos (uno por hijo)
         segmentos_act, ys_centros = subdivide_segmentos(segmentos_prev, a)
-
         total_puntos = a**g
 
-        # Altura del punto: una fracción del tamaño del subsegmento (para no tocar bordes)
         alto_subseg = (segmentos_act[0][1] - segmentos_act[0][0]) if segmentos_act else 0.05
         alto = max(0.008, alto_subseg * 0.6)
 
-        # ¿Hay que muestrear?
+        # Muestreo si excede el límite
         muestreo = 1
         if total_puntos > LIM_PUNTOS_COL:
             muestreo = math.ceil(total_puntos / LIM_PUNTOS_COL)
+            hubo_muestreo = True
 
-        # Dibujar puntos de esta columna
         color = paleta[(g-1) % len(paleta)]
-        cont_dib = 0
         for idx, ycent in enumerate(ys_centros):
             if idx % muestreo != 0:
                 continue
             y0 = ycent - alto/2
             rect = Rectangle((x, y0), ancho, alto, facecolor=color, edgecolor="white", linewidth=0.5)
             ax.add_patch(rect)
-            cont_dib += 1
 
         # Etiquetas
         ax.text(x, 1.04, f"{a}^{g} = {a**g:,}".replace(",", "."),
                 fontsize=10, ha="left", va="bottom")
         ax.text(x, -0.06, f"{g}ª generación", fontsize=10, ha="left", va="top")
 
-        # Flechas desde padres → hijos (solo si es razonable)
+        # Flechas padre→hijos si es razonable
         if g > 1:
             posibles_flechas = a**(g-1) * a
             if posibles_flechas <= LIM_FLECHAS and muestreo == 1:
                 for i_padre, ypad in enumerate(ys_prev_centros):
-                    # hijos del padre i: son 'a' segmentos consecutivos
                     start = i_padre * a
                     for k in range(a):
                         h_idx = start + k
@@ -203,21 +195,19 @@ def dibuja_hasta(frame: int):
                                               color="gray", alpha=0.5, linewidth=0.7)
                         ax.add_patch(arr)
             else:
-                usar_flechas = False
+                flechas_ocultas = True
 
-        # Preparar para el siguiente paso
         segmentos_prev = segmentos_act
         ys_prev_centros = ys_centros
 
-    # Límites del gráfico
     ax.set_xlim(-0.2, (frame-1)*x_gap + 2.0)
     ax.set_ylim(-0.12, 1.10)
 
-    # Notas informativas si hay muestreo o si ocultamos flechas
+    # Mensajes informativos
     notas = []
-    if any((a**g) > LIM_PUNTOS_COL for g in range(1, frame+1)):
-        notas.append("⚠️ Muestreo activo en columnas con muchos puntos (se muestra 1 de cada *n*).")
-    if not usar_flechas:
+    if hubo_muestreo:
+        notas.append("⚠️ Muestreo activo en columnas con muchos puntos (se muestra 1 de cada n).")
+    if flechas_ocultas:
         notas.append("ℹ️ Flechas ocultas automáticamente cuando hay demasiadas.")
 
     if notas:
@@ -229,13 +219,12 @@ def dibuja_hasta(frame: int):
 # Primera representación
 dibuja_hasta(st.session_state.anim_frame)
 
-# Reproducir
+# Reproducción automática
 if st.session_state.playing:
     if st.session_state.anim_frame < objetivo:
         time.sleep(speed_ms / 1000.0)
         st.session_state.anim_frame += 1
-        # mantener slider sincronizado:
-        st.session_state.slider_frame = st.session_state.anim_frame
+        # Importante: ya NO asignamos a slider_frame aquí (evita la excepción).
         st.experimental_rerun()
     else:
         st.session_state.playing = False
