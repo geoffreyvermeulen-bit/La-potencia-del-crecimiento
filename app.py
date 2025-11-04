@@ -1,12 +1,5 @@
 # app.py — “A la potencia de…” (animación clara para primaria, en español)
 # ------------------------------------------------------------------------
-# Qué hace:
-# - Introduce base (a) y exponente (b).
-# - Muestra a^1, a^2, … con animación Play/Pausa/Reset y “Avanzar 1”.
-# - Cada punto (padre) genera a hijos en la siguiente columna.
-# - Con pocos puntos: flechas padre→hijos. Con muchos: muestreo y aviso.
-# - Todo en español. Números grandes en formato legible.
-#
 # Requisitos: streamlit, matplotlib
 
 from __future__ import annotations
@@ -18,7 +11,7 @@ import streamlit as st
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, Rectangle
 
-# -------------- Configuración de página y estilo --------------
+# ---------------- Configuración de página y estilo ----------------
 st.set_page_config(page_title="A la potencia de…", page_icon="🧮", layout="centered")
 st.markdown(
     """
@@ -33,7 +26,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# -------------- Utilidades --------------
+# ---------------- Utilidades ----------------
 def formatea_grande(n: int) -> str:
     """Notación corta en español: mil, millón, mil millones, billón (10^12)."""
     if n < 0:
@@ -52,8 +45,8 @@ def formatea_grande(n: int) -> str:
 
 def subdivide_segmentos(prev_segmentos: List[Tuple[float,float]], a: int):
     """
-    Recibe segmentos verticales [y0,y1] y los divide en 'a' partes.
-    Devuelve nuevos segmentos y los centros verticales, para colocar hijos agrupados.
+    Divide cada segmento vertical [y0,y1] en 'a' partes y
+    devuelve la nueva lista de segmentos + la lista de centros (para colocar hijos).
     """
     nuevos = []
     ys_centros = []
@@ -66,7 +59,7 @@ def subdivide_segmentos(prev_segmentos: List[Tuple[float,float]], a: int):
             ys_centros.append((c0 + c1) / 2.0)
     return nuevos, ys_centros
 
-# -------------- Cabecera e inputs --------------
+# ---------------- Cabecera e inputs ----------------
 st.title("🧮 A la potencia de… — animación paso a paso")
 st.caption("Comienza en a¹. En cada paso, **cada punto** genera **a** hijos en la columna siguiente.")
 
@@ -78,9 +71,9 @@ with c2:
 with c3:
     speed_ms = st.slider("Velocidad (ms por paso)", 100, 1500, 500, 50)
 
-# --------- Estado seguro (claves separadas) ---------
+# ---------------- Estado (claves separadas y seguras) ----------------
 if "anim_frame" not in st.session_state:
-    st.session_state.anim_frame = 1      # fotograma de animación
+    st.session_state.anim_frame = 1      # fotograma interno de animación
 if "slider_frame" not in st.session_state:
     st.session_state.slider_frame = 1    # valor del slider controlado por el usuario
 if "playing" not in st.session_state:
@@ -89,10 +82,10 @@ if "playing" not in st.session_state:
 objetivo = int(b)
 
 def sync_desde_slider():
-    """Callback: cuando el usuario mueve el slider, sincronizamos anim_frame."""
+    """Cuando el usuario mueve el slider, sincronizamos anim_frame con su valor."""
     st.session_state.anim_frame = st.session_state.slider_frame
 
-# --------- Controles ---------
+# ---------------- Controles ----------------
 controles = st.columns([0.9,0.9,0.9,1.2,2])
 with controles[0]:
     if st.button("▶️ Reproducir"):
@@ -114,7 +107,7 @@ with controles[3]:
 with controles[4]:
     st.slider("Paso (columna)", 1, objetivo, key="slider_frame", on_change=sync_desde_slider)
 
-# Encabezado de estado actual
+# ---------------- Encabezado de estado actual ----------------
 actual = st.session_state.anim_frame
 st.markdown(
     f"<div class='big'>Ahora: {a}<sup>{actual}</sup> = "
@@ -126,17 +119,16 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# -------------- Dibujo --------------
+# ---------------- Dibujo ----------------
 placeholder = st.empty()
 
 def dibuja_hasta(frame: int):
     """
     Dibuja columnas desde a^1 hasta a^frame.
-    Colocamos puntos agrupados bajo sus padres con subdivisiones de [0,1].
     Con pocos puntos: flechas padre→hijos. Con muchos: muestreo y aviso.
     """
-    LIM_FLECHAS = 280               # máximo de flechas por paso
-    LIM_PUNTOS_COL = 2500           # máximo de puntos por columna
+    LIM_FLECHAS = 280               # máx. flechas por paso
+    LIM_PUNTOS_COL = 2500           # máx. puntos por columna
 
     x_gap = 1.6                      # separación horizontal entre columnas
     ancho = 0.075                    # ancho del punto (rectángulo)
@@ -150,8 +142,8 @@ def dibuja_hasta(frame: int):
     segmentos_prev = [(0.0, 1.0)]
     ys_prev_centros = [0.5]
 
-    hubo_muestreo = False
-    flechas_ocultas = False
+    hubo_muestreo_global = False
+    flechas_ocultas_global = False
 
     for g in range(1, frame + 1):
         x = (g-1) * x_gap
@@ -165,7 +157,7 @@ def dibuja_hasta(frame: int):
         muestreo = 1
         if total_puntos > LIM_PUNTOS_COL:
             muestreo = math.ceil(total_puntos / LIM_PUNTOS_COL)
-            hubo_muestreo = True
+            hubo_muestreo_global = True
 
         color = paleta[(g-1) % len(paleta)]
         for idx, ycent in enumerate(ys_centros):
@@ -195,7 +187,7 @@ def dibuja_hasta(frame: int):
                                               color="gray", alpha=0.5, linewidth=0.7)
                         ax.add_patch(arr)
             else:
-                flechas_ocultas = True
+                flechas_ocultas_global = True
 
         segmentos_prev = segmentos_act
         ys_prev_centros = ys_centros
@@ -205,9 +197,9 @@ def dibuja_hasta(frame: int):
 
     # Mensajes informativos
     notas = []
-    if hubo_muestreo:
-        notas.append("⚠️ Muestreo activo en columnas con muchos puntos (se muestra 1 de cada n).")
-    if flechas_ocultas:
+    if hubo_muestreo_global:
+        notas.append("⚠️ Muestreo activo cuando hay demasiados puntos (se muestra 1 de cada n).")
+    if flechas_ocultas_global:
         notas.append("ℹ️ Flechas ocultas automáticamente cuando hay demasiadas.")
 
     if notas:
@@ -219,12 +211,12 @@ def dibuja_hasta(frame: int):
 # Primera representación
 dibuja_hasta(st.session_state.anim_frame)
 
-# Reproducción automática
+# ---------------- Reproducción automática (sin experimental_rerun) ----------------
 if st.session_state.playing:
     if st.session_state.anim_frame < objetivo:
         time.sleep(speed_ms / 1000.0)
         st.session_state.anim_frame += 1
-        # Importante: ya NO asignamos a slider_frame aquí (evita la excepción).
-        st.experimental_rerun()
+        # No escribir en la clave del slider aquí (evita conflictos con widgets).
+        st.rerun()
     else:
         st.session_state.playing = False
